@@ -5,6 +5,7 @@ use bitflags::*;
 use core::hint::spin_loop;
 use log::*;
 use volatile::{ReadOnly, Volatile};
+const SUPPORTED_FEATURES: Features = Features::MQ;
 
 /// The virtio network device is a virtual ethernet card.
 ///
@@ -23,12 +24,14 @@ pub struct VirtIONet<'a, H: Hal> {
 impl<H: Hal> VirtIONet<'_, H> {
     /// Create a new VirtIO-Net driver.
     pub fn new(header: &'static mut VirtIOHeader) -> Result<Self> {
-        header.begin_init(|features| {
-            let features = Features::from_bits_truncate(features);
-            info!("Device features {:?}", features);
-            let supported_features = Features::MAC | Features::STATUS;
-            (features & supported_features).bits()
-        });
+        // header.begin_init(|features| {
+        //     let features = Features::from_bits_truncate(features);
+        //     info!("Device features {:?}", features);
+        //     let supported_features = Features::MAC | Features::STATUS;
+        //     (features & supported_features).bits()
+        // });
+        let negotiated_features = header.begin_init(SUPPORTED_FEATURES);
+
         // read configuration space
         let config = unsafe { &mut *(header.config_space() as *mut Config) };
         let mac = config.mac.read();

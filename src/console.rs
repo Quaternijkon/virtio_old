@@ -7,6 +7,7 @@ use volatile::{ReadOnly, WriteOnly};
 
 const QUEUE_RECEIVEQ_PORT_0: usize = 0;
 const QUEUE_TRANSMITQ_PORT_0: usize = 1;
+const SUPPORTED_FEATURES: Features = Features::SIZE;
 
 /// Virtio console. Only one single port is allowed since ``alloc'' is disabled.
 /// Emergency and cols/rows unimplemented.
@@ -23,12 +24,14 @@ pub struct VirtIOConsole<'a, H: Hal> {
 impl<H: Hal> VirtIOConsole<'_, H> {
     /// Create a new VirtIO-Console driver.
     pub fn new(header: &'static mut VirtIOHeader) -> Result<Self> {
-        header.begin_init(|features| {
-            let features = Features::from_bits_truncate(features);
-            info!("Device features {:?}", features);
-            let supported_features = Features::empty();
-            (features & supported_features).bits()
-        });
+        // header.begin_init(|features| {
+        //     let features = Features::from_bits_truncate(features);
+        //     info!("Device features {:?}", features);
+        //     let supported_features = Features::empty();
+        //     (features & supported_features).bits()
+        // });
+        let negotiated_features = header.begin_init(SUPPORTED_FEATURES);
+
         let config = unsafe { &mut *(header.config_space() as *mut Config) };
         info!("Config: {:?}", config);
         let receiveq = VirtQueue::new(header, QUEUE_RECEIVEQ_PORT_0, 2)?;

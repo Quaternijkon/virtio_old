@@ -7,6 +7,21 @@ use log::*;
 use volatile::Volatile;
 use zerocopy::{AsBytes, FromBytes, FromZeroes};
 
+const QUEUE: u16 = 0;
+const QUEUE_SIZE: u16 = 16;
+const SUPPORTED_FEATURES: BlkFeature = BlkFeature::RO //支持只读
+    .union(BlkFeature::FLUSH) //支持缓存刷新命令
+    .union(BlkFeature::RING_INDIRECT_DESC) //支持间接描述符
+    .union(BlkFeature::RING_EVENT_IDX) //支持事件索引
+    .union(BlkFeature::BLK_SIZE) //支持设置块大小
+    .union(BlkFeature::CONFIG_WCE) //支持writeback和writethrough模式
+    .union(BlkFeature::TOPOLOGY) //支持提供最佳I/O对齐信息
+    .union(BlkFeature::DISCARD) //支持丢弃命令
+    .union(BlkFeature::WRITE_ZEROES) //支持写零值数据命令
+    .union(BlkFeature::MQ) //支持多队列
+    .union(BlkFeature::SECURE_ERASE) //支持安全擦除命令
+    .union(BlkFeature::ZONED); //支持分区存储设备
+
 /// The virtio block device is a simple virtual block device (ie. disk).
 ///
 /// Read and write requests (and other exotic requests) are placed in the queue,
@@ -20,13 +35,14 @@ pub struct VirtIOBlk<'a, H: Hal> {
 impl<H: Hal> VirtIOBlk<'_, H> {
     /// Create a new VirtIO-Blk driver.
     pub fn new(header: &'static mut VirtIOHeader) -> Result<Self> {
-        header.begin_init(|features| {
-            let features = BlkFeature::from_bits_truncate(features);
-            info!("device features: {:?}", features);
-            // negotiate these flags only
-            let supported_features = BlkFeature::empty();
-            (features & supported_features).bits()
-        });
+        // header.begin_init(|features| {
+        //     let features = BlkFeature::from_bits_truncate(features);
+        //     info!("device features: {:?}", features);
+        //     // negotiate these flags only
+        //     let supported_features = SUPPORTED_FEATURES;
+        //     (features & supported_features).bits()
+        // });
+        let negotiated_features = header.begin_init(SUPPORTED_FEATURES);
 
         // read configuration space
         let config = unsafe { &mut *(header.config_space() as *mut BlkConfig) };
@@ -462,36 +478,42 @@ const BLK_SIZE: usize = 512;
 bitflags! {
     #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
     struct BlkFeature: u64 {
-        /// Device supports request barriers. (legacy)
+        /// 设备支持请求屏障 (legacy)
         const BARRIER       = 1 << 0;
-        /// Maximum size of any single segment is in `size_max`.
+        /// 任何单个段的最大大小在 `size_max` 中。
         const SIZE_MAX      = 1 << 1;
-        /// Maximum number of segments in a request is in `seg_max`.
+        /// 一个请求中的最大段数在 `seg_max` 中。
         const SEG_MAX       = 1 << 2;
-        /// Disk-style geometry specified in geometry.
+        /// 在 geometry 中指定了磁盘样式的几何结构。
         const GEOMETRY      = 1 << 4;
-        /// Device is read-only.
+        /// 设备是只读的。
         const RO            = 1 << 5;
-        /// Block size of disk is in `blk_size`.
+        /// 磁盘的块大小在 `blk_size` 中。
         const BLK_SIZE      = 1 << 6;
-        /// Device supports scsi packet commands. (legacy)
+        /// 设备支持 SCSI 包命令（legacy）。
         const SCSI          = 1 << 7;
-        /// Cache flush command support.
+        /// 缓存刷新命令支持。
         const FLUSH         = 1 << 9;
-        /// Device exports information on optimal I/O alignment.
+        /// 设备提供有关最佳 I/O 对齐的信息。
         const TOPOLOGY      = 1 << 10;
-        /// Device can toggle its cache between writeback and writethrough modes.
+        /// 设备可以在写回和写穿透模式之间切换其缓存。
         const CONFIG_WCE    = 1 << 11;
-        /// Device can support discard command, maximum discard sectors size in
-        /// `max_discard_sectors` and maximum discard segment number in
-        /// `max_discard_seg`.
+        /// 设备支持多队列。
+        const MQ            = 1 << 12;
+        /// 设备可以支持丢弃命令，在 `max_discard_sectors` 中指定最大丢弃扇区大小，
+        /// 在 `max_discard_seg` 中指定最大丢弃段数。
         const DISCARD       = 1 << 13;
-        /// Device can support write zeroes command, maximum write zeroes sectors
-        /// size in `max_write_zeroes_sectors` and maximum write zeroes segment
-        /// number in `max_write_zeroes_seg`.
+        /// 设备可以支持写零命令，在 `max_write_zeroes_sectors` 中指定最大写零扇区大小，
+        /// 在 `max_write_zeroes_seg` 中指定最大写零段数。
         const WRITE_ZEROES  = 1 << 14;
+        /// 设备支持提供存储寿命信息。
+        const LIFETIME      = 1 << 15;
+        /// 设备可以支持安全擦除命令。
+        const SECURE_ERASE  = 1 << 16;
+        /// 设备是遵循分区存储的设备。
+        const ZONED         = 1 << 17;
 
-        // device independent
+        // 设备独立的特性
         const NOTIFY_ON_EMPTY       = 1 << 24; // legacy
         const ANY_LAYOUT            = 1 << 27; // legacy
         const RING_INDIRECT_DESC    = 1 << 28;
@@ -499,7 +521,7 @@ bitflags! {
         const UNUSED                = 1 << 30; // legacy
         const VERSION_1             = 1 << 32; // detect legacy
 
-        // the following since virtio v1.1
+        // 自 VirtIO v1.1 起支持以下功能。
         const ACCESS_PLATFORM       = 1 << 33;
         const RING_PACKED           = 1 << 34;
         const IN_ORDER              = 1 << 35;

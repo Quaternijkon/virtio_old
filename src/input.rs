@@ -3,6 +3,7 @@ use alloc::boxed::Box;
 use bitflags::*;
 use log::*;
 use volatile::{ReadOnly, WriteOnly};
+const SUPPORTED_FEATURES: Feature = Feature::NOTIFY_ON_EMPTY;
 
 /// Virtual human interface devices such as keyboards, mice and tablets.
 ///
@@ -20,13 +21,15 @@ impl<'a, H: Hal> VirtIOInput<'a, H> {
     /// Create a new VirtIO-Input driver.
     pub fn new(header: &'static mut VirtIOHeader) -> Result<Self> {
         let mut event_buf = Box::new([InputEvent::default(); QUEUE_SIZE]);
-        header.begin_init(|features| {
-            let features = Feature::from_bits_truncate(features);
-            info!("Device features: {:?}", features);
-            // negotiate these flags only
-            let supported_features = Feature::empty();
-            (features & supported_features).bits()
-        });
+        // header.begin_init(|features| {
+        //     let features = Feature::from_bits_truncate(features);
+        //     info!("Device features: {:?}", features);
+        //     // negotiate these flags only
+        //     let supported_features = Feature::empty();
+        //     (features & supported_features).bits()
+        // });
+
+        let negotiated_features = header.begin_init(SUPPORTED_FEATURES);
 
         let mut event_queue = VirtQueue::new(header, QUEUE_EVENT, QUEUE_SIZE as u16)?;
         let status_queue = VirtQueue::new(header, QUEUE_STATUS, QUEUE_SIZE as u16)?;

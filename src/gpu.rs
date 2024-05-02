@@ -4,6 +4,7 @@ use bitflags::*;
 use core::{fmt, hint::spin_loop};
 use log::*;
 use volatile::{ReadOnly, Volatile, WriteOnly};
+const SUPPORTED_FEATURES: Features = Features::NOTIFY_ON_EMPTY;
 
 /// A virtio based graphics adapter.
 ///
@@ -34,12 +35,13 @@ pub struct VirtIOGpu<'a, H: Hal> {
 impl<H: Hal> VirtIOGpu<'_, H> {
     /// Create a new VirtIO-Gpu driver.
     pub fn new(header: &'static mut VirtIOHeader) -> Result<Self> {
-        header.begin_init(|features| {
-            let features = Features::from_bits_truncate(features);
-            info!("Device features {:?}", features);
-            let supported_features = Features::empty();
-            (features & supported_features).bits()
-        });
+        // header.begin_init(|features| {
+        //     let features = Features::from_bits_truncate(features);
+        //     info!("Device features {:?}", features);
+        //     let supported_features = Features::empty();
+        //     (features & supported_features).bits()
+        // });
+        let negotiated_features = header.begin_init(SUPPORTED_FEATURES);
 
         // read configuration space
         let config = unsafe { &mut *(header.config_space() as *mut Config) };
