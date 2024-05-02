@@ -300,6 +300,60 @@ enum ReqType {
 //     _NotReady = 3,
 // }
 
+struct BlkReqZoneAppend {
+    type_: ReqTypeZoneAppend,
+    reserved: u32,
+    sector: u64,
+    data: [u8; 16],
+    append_sectors: u64,
+    status: u8,
+}
+
+#[repr(u32)]
+#[derive(AsBytes, Debug)]
+enum ReqTypeZoneAppend {
+    InvalidCMD = 3,
+    UnalignedWP = 4,
+    OpenResource = 5,
+    ActiveResource = 6,
+}
+
+struct BlkZoneReport {
+    nr_zones: u64,
+    reserved: [u8; 56],
+    zones: [BlkZoneDescriptor; 32],
+}
+
+struct BlkZoneDescriptor {
+    z_cap: u64,
+    z_start: u64,
+    z_wp: u64,
+    z_type: ZoneType,
+    z_state: ZoneStateType,
+    reserved: [u8; 38],
+}
+
+#[repr(u8)]
+#[derive(AsBytes, Debug)]
+enum ZoneType {
+    CONV = 1,
+    SWR = 2,
+    SWP = 3,
+}
+
+#[repr(u32)]
+#[derive(AsBytes, Debug)]
+enum ZoneStateType {
+    NotWP = 0,
+    Empty = 1,
+    IOPEN = 2,
+    EOPEN = 3,
+    Closed = 4,
+    RdOnly = 13,
+    Full = 14,
+    Offline = 15,
+}
+
 #[repr(transparent)]
 #[derive(AsBytes, Copy, Clone, Debug, Eq, FromBytes, FromZeroes, PartialEq)]
 pub struct RespStatus(u8);
@@ -333,6 +387,74 @@ impl Default for BlkResp {
             status: RespStatus::NOT_READY,
         }
     }
+}
+
+struct BlkDiscardWriteZeroes {
+    sector: u64,
+    num_sectors: u32,
+    flags: Flags, //struct Flags
+}
+
+struct Flags {
+    unmap: u32,
+    reserved: u32,
+}
+
+impl Default for Flags {
+    fn default() -> Self {
+        Flags {
+            unmap: 1,
+            reserved: 31,
+        }
+    }
+}
+
+struct BlkLifetime {
+    pre_eol_info: PreEolInfoType,
+    est_typ_a: u16,
+    est_typ_b: u16,
+}
+
+#[repr(u8)]
+#[derive(AsBytes, Debug)]
+enum PreEolInfoType {
+    Undefined = 0,
+    Normal = 1,
+    Warning = 2,
+    Urgent = 3,
+}
+
+#[repr(u64)]
+#[derive(AsBytes, Debug)]
+enum StatusType {
+    OK = 0,
+    IOErr = 1,
+    UnSupp = 2,
+}
+
+const SCSI_SENSE_BUFFERSIZE: usize = 96;
+
+/// All fields are in guest's native endian.
+
+struct ScsiPcReq {
+    type_: ScsiPcReqType,
+    ioprio: u32,
+    sector: u64,
+    cmd: [u8; 16],
+    data: [u8; 512],
+    sense: [u8; SCSI_SENSE_BUFFERSIZE],
+    error: u32,
+    data_len: u32,
+    sense_len: u32,
+    residual: u32,
+    status: u8,
+}
+
+#[repr(u64)]
+#[derive(AsBytes, Debug)]
+enum ScsiPcReqType {
+    SCSICMD = 2,
+    SCSICMDOUT = 3,
 }
 
 const BLK_SIZE: usize = 512;
@@ -389,3 +511,464 @@ bitflags! {
 
 unsafe impl AsBuf for BlkReq {}
 unsafe impl AsBuf for BlkResp {}
+
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
+//     use crate::{
+//         hal::fake::FakeHal,
+//         transport::{
+//             fake::{FakeTransport, QueueStatus, State},
+//             DeviceType,
+//         },
+//     };
+//     use alloc::{sync::Arc, vec};
+//     use core::{mem::size_of, ptr::NonNull};
+//     use std::{sync::Mutex, thread};
+
+//     #[test]
+//     fn config() {
+//         let mut config_space = BlkConfig {
+//             capacity_low: Volatile::new(0x42),
+//             capacity_high: Volatile::new(0x02),
+//             size_max: Volatile::new(0),
+//             seg_max: Volatile::new(0),
+//             cylinders: Volatile::new(0),
+//             heads: Volatile::new(0),
+//             sectors: Volatile::new(0),
+//             blk_size: Volatile::new(0),
+//             physical_block_size: Volatile::new(0),
+//             alignment_offset: Volatile::new(0),
+//             min_io_size: Volatile::new(0),
+//             opt_io_size: Volatile::new(0),
+//             writeback: Volatile::new(0),
+//             unused0: Volatile::new(0),
+//             num_queues: Volatile::new(0),
+//             max_discard_sectors: Volatile::new(0),
+//             max_discard_seg: Volatile::new(0),
+//             discard_sector_alignment: Volatile::new(0),
+//             max_write_zeroes_sectors: Volatile::new(0),
+//             max_write_zeroes_seg: Volatile::new(0),
+//             write_zeroes_may_unmap: Volatile::new(0),
+//             unused1: [Volatile::new(0); 3],
+//             max_secure_erase_sectors: Volatile::new(0),
+//             max_secure_erase_seg: Volatile::new(0),
+//             secure_erase_sector_alignment: Volatile::new(0),
+//             zone_sectors: Volatile::new(0),
+//             max_open_zones: Volatile::new(0),
+//             max_active_zones: Volatile::new(0),
+//             max_append_sectors: Volatile::new(0),
+//             write_granularity: Volatile::new(0),
+//             model: ModelType::NONE,
+//             unused2: [Volatile::new(0); 3],
+//         };
+//         let state = Arc::new(Mutex::new(State {
+//             queues: vec![QueueStatus::default()],
+//             ..Default::default()
+//         }));
+//         let transport = FakeTransport {
+//             device_type: DeviceType::Block,
+//             max_queue_size: QUEUE_SIZE.into(),
+//             device_features: BlkFeature::RO.bits(),
+//             config_space: NonNull::from(&mut config_space),
+//             state: state.clone(),
+//         };
+//         let blk = VirtIOBlk::<FakeHal, FakeTransport<BlkConfig>>::new(transport).unwrap();
+
+//         assert_eq!(blk.capacity(), 0x02_0000_0042);
+//         assert_eq!(blk.readonly(), true);
+//     }
+
+//     #[test]
+//     fn read() {
+//         let mut config_space = BlkConfig {
+//             capacity_low: Volatile::new(66),
+//             capacity_high: Volatile::new(0),
+//             size_max: Volatile::new(0),
+//             seg_max: Volatile::new(0),
+//             geometry: BlkGeometry {
+//                 cylinders: Volatile::new(0),
+//                 heads: Volatile::new(0),
+//                 sectors: Volatile::new(0),
+//             },
+//             blk_size: Volatile::new(0),
+//             topology: BlkTopology {
+//                 physical_block_size: Volatile::new(0),
+//                 alignment_offset: Volatile::new(0),
+//                 min_io_size: Volatile::new(0),
+//                 opt_io_size: Volatile::new(0),
+//             },
+//             writeback: Volatile::new(0),
+//             unused0: Volatile::new(0),
+//             num_queues: Volatile::new(0),
+//             max_discard_sectors: Volatile::new(0),
+//             max_discard_seg: Volatile::new(0),
+//             discard_sector_alignment: Volatile::new(0),
+//             max_write_zeroes_sectors: Volatile::new(0),
+//             max_write_zeroes_seg: Volatile::new(0),
+//             write_zeroes_may_unmap: Volatile::new(0),
+//             unused1: [Volatile::new(0); 3],
+//             max_secure_erase_sectors: Volatile::new(0),
+//             max_secure_erase_seg: Volatile::new(0),
+//             secure_erase_sector_alignment: Volatile::new(0),
+//             zoned: BlkZonedCharacteristics {
+//                 zone_sectors: Volatile::new(0),
+//                 max_open_zones: Volatile::new(0),
+//                 max_active_zones: Volatile::new(0),
+//                 max_append_sectors: Volatile::new(0),
+//                 write_granularity: Volatile::new(0),
+//                 model: ModelType::NONE,
+//                 unused2: [Volatile::new(0); 3],
+//             },
+//         };
+//         let state = Arc::new(Mutex::new(State {
+//             queues: vec![QueueStatus::default()],
+//             ..Default::default()
+//         }));
+//         let transport = FakeTransport {
+//             device_type: DeviceType::Block,
+//             max_queue_size: QUEUE_SIZE.into(),
+//             device_features: BlkFeature::RING_INDIRECT_DESC.bits(),
+//             config_space: NonNull::from(&mut config_space),
+//             state: state.clone(),
+//         };
+//         let mut blk = VirtIOBlk::<FakeHal, FakeTransport<BlkConfig>>::new(transport).unwrap();
+
+//         // Start a thread to simulate the device waiting for a read request.
+//         let handle = thread::spawn(move || {
+//             println!("Device waiting for a request.");
+//             State::wait_until_queue_notified(&state, QUEUE);
+//             println!("Transmit queue was notified.");
+
+//             state
+//                 .lock()
+//                 .unwrap()
+//                 .read_write_queue::<{ QUEUE_SIZE as usize }>(QUEUE, |request| {
+//                     assert_eq!(
+//                         request,
+//                         BlkReq {
+//                             type_: ReqType::In,
+//                             reserved: 0,
+//                             sector: 42,
+//                             // data: [0; 16],
+//                             // status: StatusType::OK,
+//                         }
+//                         .as_bytes()
+//                     );
+
+//                     let mut response = vec![0; SECTOR_SIZE];
+//                     response[0..9].copy_from_slice(b"Test data");
+//                     response.extend_from_slice(
+//                         BlkResp {
+//                             status: RespStatus::OK,
+//                         }
+//                         .as_bytes(),
+//                     );
+
+//                     response
+//                 });
+//         });
+
+//         // Read a block from the device.
+//         let mut buffer = [0; 512];
+//         blk.read_blocks(42, &mut buffer).unwrap();
+//         assert_eq!(&buffer[0..9], b"Test data");
+
+//         handle.join().unwrap();
+//     }
+
+//     #[test]
+//     fn write() {
+//         let mut config_space = BlkConfig {
+//             capacity_low: Volatile::new(66),
+//             capacity_high: Volatile::new(0),
+//             size_max: Volatile::new(0),
+//             seg_max: Volatile::new(0),
+//             geometry: BlkGeometry {
+//                 cylinders: Volatile::new(0),
+//                 heads: Volatile::new(0),
+//                 sectors: Volatile::new(0),
+//             },
+//             blk_size: Volatile::new(0),
+//             topology: BlkTopology {
+//                 physical_block_size: Volatile::new(0),
+//                 alignment_offset: Volatile::new(0),
+//                 min_io_size: Volatile::new(0),
+//                 opt_io_size: Volatile::new(0),
+//             },
+//             writeback: Volatile::new(0),
+//             unused0: Volatile::new(0),
+//             num_queues: Volatile::new(0),
+//             max_discard_sectors: Volatile::new(0),
+//             max_discard_seg: Volatile::new(0),
+//             discard_sector_alignment: Volatile::new(0),
+//             max_write_zeroes_sectors: Volatile::new(0),
+//             max_write_zeroes_seg: Volatile::new(0),
+//             write_zeroes_may_unmap: Volatile::new(0),
+//             unused1: [Volatile::new(0); 3],
+//             max_secure_erase_sectors: Volatile::new(0),
+//             max_secure_erase_seg: Volatile::new(0),
+//             secure_erase_sector_alignment: Volatile::new(0),
+//             zoned: BlkZonedCharacteristics {
+//                 zone_sectors: Volatile::new(0),
+//                 max_open_zones: Volatile::new(0),
+//                 max_active_zones: Volatile::new(0),
+//                 max_append_sectors: Volatile::new(0),
+//                 write_granularity: Volatile::new(0),
+//                 model: ModelType::NONE,
+//                 unused2: [Volatile::new(0); 3],
+//             },
+//         };
+//         let state = Arc::new(Mutex::new(State {
+//             queues: vec![QueueStatus::default()],
+//             ..Default::default()
+//         }));
+//         let transport = FakeTransport {
+//             device_type: DeviceType::Block,
+//             max_queue_size: QUEUE_SIZE.into(),
+//             device_features: BlkFeature::RING_INDIRECT_DESC.bits(),
+//             config_space: NonNull::from(&mut config_space),
+//             state: state.clone(),
+//         };
+//         let mut blk = VirtIOBlk::<FakeHal, FakeTransport<BlkConfig>>::new(transport).unwrap();
+
+//         // Start a thread to simulate the device waiting for a write request.
+//         let handle = thread::spawn(move || {
+//             println!("Device waiting for a request.");
+//             State::wait_until_queue_notified(&state, QUEUE);
+//             println!("Transmit queue was notified.");
+
+//             state
+//                 .lock()
+//                 .unwrap()
+//                 .read_write_queue::<{ QUEUE_SIZE as usize }>(QUEUE, |request| {
+//                     assert_eq!(
+//                         &request[0..size_of::<BlkReq>()],
+//                         BlkReq {
+//                             type_: ReqType::Out,
+//                             reserved: 0,
+//                             sector: 42,
+//                             // data: [0; 16],
+//                             // status: StatusType::OK,
+//                         }
+//                         .as_bytes()
+//                     );
+//                     let data = &request[size_of::<BlkReq>()..];
+//                     assert_eq!(data.len(), SECTOR_SIZE);
+//                     assert_eq!(&data[0..9], b"Test data");
+
+//                     let mut response = Vec::new();
+//                     response.extend_from_slice(
+//                         BlkResp {
+//                             status: RespStatus::OK,
+//                         }
+//                         .as_bytes(),
+//                     );
+
+//                     response
+//                 });
+//         });
+
+//         // Write a block to the device.
+//         let mut buffer = [0; 512];
+//         buffer[0..9].copy_from_slice(b"Test data");
+//         blk.write_blocks(42, &mut buffer).unwrap();
+
+//         // Request to flush should be ignored as the device doesn't support it.
+//         blk.flush().unwrap();
+
+//         handle.join().unwrap();
+//     }
+
+//     #[test]
+//     fn flush() {
+//         let mut config_space = BlkConfig {
+//             capacity_low: Volatile::new(66),
+//             capacity_high: Volatile::new(0),
+//             size_max: Volatile::new(0),
+//             seg_max: Volatile::new(0),
+//             geometry: BlkGeometry {
+//                 cylinders: Volatile::new(0),
+//                 heads: Volatile::new(0),
+//                 sectors: Volatile::new(0),
+//             },
+//             blk_size: Volatile::new(0),
+//             topology: BlkTopology {
+//                 physical_block_size: Volatile::new(0),
+//                 alignment_offset: Volatile::new(0),
+//                 min_io_size: Volatile::new(0),
+//                 opt_io_size: Volatile::new(0),
+//             },
+//             writeback: Volatile::new(0),
+//             unused0: Volatile::new(0),
+//             num_queues: Volatile::new(0),
+//             max_discard_sectors: Volatile::new(0),
+//             max_discard_seg: Volatile::new(0),
+//             discard_sector_alignment: Volatile::new(0),
+//             max_write_zeroes_sectors: Volatile::new(0),
+//             max_write_zeroes_seg: Volatile::new(0),
+//             write_zeroes_may_unmap: Volatile::new(0),
+//             unused1: [Volatile::new(0); 3],
+//             max_secure_erase_sectors: Volatile::new(0),
+//             max_secure_erase_seg: Volatile::new(0),
+//             secure_erase_sector_alignment: Volatile::new(0),
+//             zoned: BlkZonedCharacteristics {
+//                 zone_sectors: Volatile::new(0),
+//                 max_open_zones: Volatile::new(0),
+//                 max_active_zones: Volatile::new(0),
+//                 max_append_sectors: Volatile::new(0),
+//                 write_granularity: Volatile::new(0),
+//                 model: ModelType::NONE,
+//                 unused2: [Volatile::new(0); 3],
+//             },
+//         };
+//         let state = Arc::new(Mutex::new(State {
+//             queues: vec![QueueStatus::default()],
+//             ..Default::default()
+//         }));
+//         let transport = FakeTransport {
+//             device_type: DeviceType::Block,
+//             max_queue_size: QUEUE_SIZE.into(),
+//             device_features: (BlkFeature::RING_INDIRECT_DESC | BlkFeature::FLUSH).bits(),
+//             config_space: NonNull::from(&mut config_space),
+//             state: state.clone(),
+//         };
+//         let mut blk = VirtIOBlk::<FakeHal, FakeTransport<BlkConfig>>::new(transport).unwrap();
+
+//         // Start a thread to simulate the device waiting for a flush request.
+//         let handle = thread::spawn(move || {
+//             println!("Device waiting for a request.");
+//             State::wait_until_queue_notified(&state, QUEUE);
+//             println!("Transmit queue was notified.");
+
+//             state
+//                 .lock()
+//                 .unwrap()
+//                 .read_write_queue::<{ QUEUE_SIZE as usize }>(QUEUE, |request| {
+//                     assert_eq!(
+//                         request,
+//                         BlkReq {
+//                             type_: ReqType::Flush,
+//                             reserved: 0,
+//                             sector: 0,
+//                             // data: [0; 16],
+//                             // status: StatusType::OK,
+//                         }
+//                         .as_bytes()
+//                     );
+
+//                     let mut response = Vec::new();
+//                     response.extend_from_slice(
+//                         BlkResp {
+//                             status: RespStatus::OK,
+//                         }
+//                         .as_bytes(),
+//                     );
+
+//                     response
+//                 });
+//         });
+
+//         // Request to flush.
+//         blk.flush().unwrap();
+
+//         handle.join().unwrap();
+//     }
+
+//     #[test]
+//     fn device_id() {
+//         let mut config_space = BlkConfig {
+//             capacity_low: Volatile::new(66),
+//             capacity_high: Volatile::new(0),
+//             size_max: Volatile::new(0),
+//             seg_max: Volatile::new(0),
+//             geometry: BlkGeometry {
+//                 cylinders: Volatile::new(0),
+//                 heads: Volatile::new(0),
+//                 sectors: Volatile::new(0),
+//             },
+//             blk_size: Volatile::new(0),
+//             topology: BlkTopology {
+//                 physical_block_size: Volatile::new(0),
+//                 alignment_offset: Volatile::new(0),
+//                 min_io_size: Volatile::new(0),
+//                 opt_io_size: Volatile::new(0),
+//             },
+//             writeback: Volatile::new(0),
+//             unused0: Volatile::new(0),
+//             num_queues: Volatile::new(0),
+//             max_discard_sectors: Volatile::new(0),
+//             max_discard_seg: Volatile::new(0),
+//             discard_sector_alignment: Volatile::new(0),
+//             max_write_zeroes_sectors: Volatile::new(0),
+//             max_write_zeroes_seg: Volatile::new(0),
+//             write_zeroes_may_unmap: Volatile::new(0),
+//             unused1: [Volatile::new(0); 3],
+//             max_secure_erase_sectors: Volatile::new(0),
+//             max_secure_erase_seg: Volatile::new(0),
+//             secure_erase_sector_alignment: Volatile::new(0),
+//             zoned: BlkZonedCharacteristics {
+//                 zone_sectors: Volatile::new(0),
+//                 max_open_zones: Volatile::new(0),
+//                 max_active_zones: Volatile::new(0),
+//                 max_append_sectors: Volatile::new(0),
+//                 write_granularity: Volatile::new(0),
+//                 model: ModelType::NONE,
+//                 unused2: [Volatile::new(0); 3],
+//             },
+//         };
+//         let state = Arc::new(Mutex::new(State {
+//             queues: vec![QueueStatus::default()],
+//             ..Default::default()
+//         }));
+//         let transport = FakeTransport {
+//             device_type: DeviceType::Block,
+//             max_queue_size: QUEUE_SIZE.into(),
+//             device_features: BlkFeature::RING_INDIRECT_DESC.bits(),
+//             config_space: NonNull::from(&mut config_space),
+//             state: state.clone(),
+//         };
+//         let mut blk = VirtIOBlk::<FakeHal, FakeTransport<BlkConfig>>::new(transport).unwrap();
+
+//         // Start a thread to simulate the device waiting for a flush request.
+//         let handle = thread::spawn(move || {
+//             println!("Device waiting for a request.");
+//             State::wait_until_queue_notified(&state, QUEUE);
+//             println!("Transmit queue was notified.");
+
+//             state
+//                 .lock()
+//                 .unwrap()
+//                 .read_write_queue::<{ QUEUE_SIZE as usize }>(QUEUE, |request| {
+//                     assert_eq!(
+//                         request,
+//                         BlkReq {
+//                             type_: ReqType::GetId,
+//                             reserved: 0,
+//                             sector: 0,
+//                             // data: [0; 16],
+//                             // status: StatusType::OK,
+//                         }
+//                         .as_bytes()
+//                     );
+
+//                     let mut response = Vec::new();
+//                     response.extend_from_slice(b"device_id\0\0\0\0\0\0\0\0\0\0\0");
+//                     response.extend_from_slice(
+//                         BlkResp {
+//                             status: RespStatus::OK,
+//                         }
+//                         .as_bytes(),
+//                     );
+
+//                     response
+//                 });
+//         });
+
+//         let mut id = [0; 20];
+//         let length = blk.device_id(&mut id).unwrap();
+//         assert_eq!(&id[0..length], b"device_id");
+
+//         handle.join().unwrap();
+//     }
+// }
