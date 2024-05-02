@@ -225,6 +225,7 @@ impl Descriptor {
 }
 
 bitflags! {
+    #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
     /// Descriptor flags
     struct DescFlags: u16 {
         const NEXT = 1;

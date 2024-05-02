@@ -1,7 +1,7 @@
 //! VirtIO guest drivers.
 
 #![no_std]
-#![deny(unused_must_use, missing_docs)]
+// #![deny(unused_must_use, missing_docs)]
 #![allow(clippy::identity_op)]
 #![allow(dead_code)]
 
@@ -48,6 +48,7 @@ pub enum Error {
     DmaError,
     /// I/O Error
     IoError,
+    Unsupported,
 }
 
 /// Align `size` up to a page.

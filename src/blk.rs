@@ -5,6 +5,7 @@ use bitflags::*;
 use core::hint::spin_loop;
 use log::*;
 use volatile::Volatile;
+use zerocopy::{AsBytes, FromBytes, FromZeroes};
 
 /// The virtio block device is a simple virtual block device (ie. disk).
 ///
@@ -66,7 +67,7 @@ impl<H: Hal> VirtIOBlk<'_, H> {
         }
         self.queue.pop_used()?;
         match resp.status {
-            RespStatus::Ok => Ok(()),
+            RespStatus::OK => Ok(()),
             _ => Err(Error::IoError),
         }
     }
@@ -132,7 +133,7 @@ impl<H: Hal> VirtIOBlk<'_, H> {
         }
         self.queue.pop_used()?;
         match resp.status {
-            RespStatus::Ok => Ok(()),
+            RespStatus::OK => Ok(()),
             _ => Err(Error::IoError),
         }
     }
@@ -200,7 +201,34 @@ struct BlkConfig {
     alignment_offset: Volatile<u8>,
     min_io_size: Volatile<u16>,
     opt_io_size: Volatile<u32>,
-    // ... ignored
+    writeback: Volatile<u8>,
+    unused0: Volatile<u8>,
+    num_queues: Volatile<u16>,
+    max_discard_sectors: Volatile<u32>,
+    max_discard_seg: Volatile<u32>,
+    discard_sector_alignment: Volatile<u32>,
+    max_write_zeroes_sectors: Volatile<u32>,
+    max_write_zeroes_seg: Volatile<u32>,
+    write_zeroes_may_unmap: Volatile<u32>,
+    unused1: [Volatile<u8>; 3],
+    max_secure_erase_sectors: Volatile<u32>,
+    max_secure_erase_seg: Volatile<u32>,
+    secure_erase_sector_alignment: Volatile<u32>,
+    zone_sectors: Volatile<u32>,
+    max_open_zones: Volatile<u32>,
+    max_active_zones: Volatile<u32>,
+    max_append_sectors: Volatile<u32>,
+    write_granularity: Volatile<u32>,
+    model: ModelType, //enum ModelType
+    unused2: [Volatile<u8>; 3],
+}
+
+#[repr(u8)]
+#[derive(AsBytes, Debug)]
+enum ModelType {
+    NONE = 0,
+    HM = 1,
+    HA = 2,
 }
 
 #[repr(C)]
@@ -211,9 +239,21 @@ struct BlkReq {
     sector: u64,
 }
 
+impl Default for BlkReq {
+    fn default() -> Self {
+        Self {
+            type_: ReqType::In,
+            reserved: 0,
+            sector: 0,
+            // data: [0; 16],
+            // status: StatusType::OK,
+        }
+    }
+}
+
 /// Response of a VirtIOBlk request.
 #[repr(C)]
-#[derive(Debug)]
+#[derive(AsBytes, Debug, FromBytes, FromZeroes)]
 pub struct BlkResp {
     status: RespStatus,
 }
@@ -231,28 +271,66 @@ enum ReqType {
     In = 0,
     Out = 1,
     Flush = 4,
+    GetId = 8,
+    GetLifetime = 10,
     Discard = 11,
     WriteZeroes = 13,
+    SecureErase = 14,
+
+    Append = 15,
+    Report = 16,
+    Open = 18,
+    Close = 20,
+    Finish = 22,
+    Reset = 24,
+    ResetAll = 26,
 }
 
 /// Status of a VirtIOBlk request.
-#[repr(u8)]
-#[derive(Debug, Eq, PartialEq, Copy, Clone)]
-pub enum RespStatus {
+// #[repr(u8)]
+// #[derive(Debug, Eq, PartialEq, Copy, Clone)]
+// pub enum RespStatus {
+//     /// Ok.
+//     Ok = 0,
+//     /// IoErr.
+//     IoErr = 1,
+//     /// Unsupported yet.
+//     Unsupported = 2,
+//     /// Not ready.
+//     _NotReady = 3,
+// }
+
+#[repr(transparent)]
+#[derive(AsBytes, Copy, Clone, Debug, Eq, FromBytes, FromZeroes, PartialEq)]
+pub struct RespStatus(u8);
+
+impl RespStatus {
     /// Ok.
-    Ok = 0,
+    pub const OK: RespStatus = RespStatus(0);
     /// IoErr.
-    IoErr = 1,
+    pub const IO_ERR: RespStatus = RespStatus(1);
     /// Unsupported yet.
-    Unsupported = 2,
+    pub const UNSUPPORTED: RespStatus = RespStatus(2);
     /// Not ready.
-    _NotReady = 3,
+    pub const NOT_READY: RespStatus = RespStatus(3);
+}
+
+impl From<RespStatus> for Result {
+    fn from(status: RespStatus) -> Self {
+        match status {
+            RespStatus::OK => Ok(()),
+            RespStatus::IO_ERR => Err(Error::IoError),
+            RespStatus::UNSUPPORTED => Err(Error::Unsupported),
+            RespStatus::NOT_READY => Err(Error::NotReady),
+            _ => Err(Error::IoError),
+        }
+    }
 }
 
 impl Default for BlkResp {
     fn default() -> Self {
         BlkResp {
-            status: RespStatus::_NotReady,
+            status: RespStatus::NOT_READY,
         }
     }
 }
@@ -260,6 +338,7 @@ impl Default for BlkResp {
 const BLK_SIZE: usize = 512;
 
 bitflags! {
+    #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
     struct BlkFeature: u64 {
         /// Device supports request barriers. (legacy)
         const BARRIER       = 1 << 0;

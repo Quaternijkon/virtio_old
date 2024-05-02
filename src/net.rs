@@ -97,6 +97,7 @@ impl<H: Hal> VirtIONet<'_, H> {
 }
 
 bitflags! {
+    #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
     struct Features: u64 {
         /// Device handles packets with partial checksum.
         /// This "checksum offload" is a common feature on modern network cards.
@@ -158,6 +159,7 @@ bitflags! {
 }
 
 bitflags! {
+    #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
     struct Status: u16 {
         const LINK_UP = 1;
         const ANNOUNCE = 2;
@@ -165,6 +167,7 @@ bitflags! {
 }
 
 bitflags! {
+    #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
     struct InterruptStatus : u32 {
         const USED_RING_UPDATE = 1 << 0;
         const CONFIGURATION_CHANGE = 1 << 1;
@@ -196,6 +199,7 @@ struct Header {
 unsafe impl AsBuf for Header {}
 
 bitflags! {
+    #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
     struct Flags: u8 {
         const NEEDS_CSUM = 1;
         const DATA_VALID = 2;

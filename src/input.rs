@@ -149,6 +149,7 @@ pub struct InputEvent {
 unsafe impl AsBuf for InputEvent {}
 
 bitflags! {
+    #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
     struct Feature: u64 {
         // device independent
         const NOTIFY_ON_EMPTY       = 1 << 24; // legacy

@@ -296,6 +296,7 @@ impl VirtIOHeader {
 }
 
 bitflags! {
+    #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
     /// The device status field.
     struct DeviceStatus: u32 {
         /// Indicates that the guest OS has found the device and recognized it
