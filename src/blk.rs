@@ -2,6 +2,7 @@ use super::*;
 use crate::header::VirtIOHeader;
 use crate::queue::VirtQueue;
 use bitflags::*;
+// use core::error::Request;
 use core::hint::spin_loop;
 use log::*;
 use volatile::Volatile;
@@ -30,19 +31,23 @@ pub struct VirtIOBlk<'a, H: Hal> {
     header: &'static mut VirtIOHeader,
     queue: VirtQueue<'a, H>,
     capacity: usize,
+    negotiated_features: BlkFeature,
 }
 
 impl<H: Hal> VirtIOBlk<'_, H> {
     /// Create a new VirtIO-Blk driver.
     pub fn new(header: &'static mut VirtIOHeader) -> Result<Self> {
-        // header.begin_init(|features| {
-        //     let features = BlkFeature::from_bits_truncate(features);
-        //     info!("device features: {:?}", features);
-        //     // negotiate these flags only
-        //     let supported_features = SUPPORTED_FEATURES;
-        //     (features & supported_features).bits()
-        // });
-        let negotiated_features = header.begin_init(SUPPORTED_FEATURES);
+        let negotiated_features = BlkFeature::from_bits_truncate(header.begin_init(|features| {
+            let features = BlkFeature::from_bits_truncate(features);
+            info!("device features: {:?}", features);
+            // negotiate these flags only
+            let supported_features = SUPPORTED_FEATURES;
+            (features & supported_features).bits()
+        }));
+
+        // let negotiated_features = header.device_features & SUPPORTED_FEATURES;
+
+        // let negotiated_features = header.begin_init(SUPPORTED_FEATURES);
 
         // read configuration space
         let config = unsafe { &mut *(header.config_space() as *mut BlkConfig) };
@@ -59,13 +64,29 @@ impl<H: Hal> VirtIOBlk<'_, H> {
             header,
             queue,
             capacity: config.capacity.read() as usize,
+            negotiated_features,
         })
+    }
+
+    /// 获取块设备的容量, in 512 byte ([`SECTOR_SIZE`]) sectors.
+    pub fn capacity(&self) -> usize {
+        self.capacity
+    }
+
+    /// 如果块设备是只读的，则返回 true；如果允许写入，则返回 false。.
+    pub fn readonly(&self) -> bool {
+        self.negotiated_features.contains(BlkFeature::RO)
     }
 
     /// Acknowledge interrupt.
     pub fn ack_interrupt(&mut self) -> bool {
         self.header.ack_interrupt()
     }
+
+    // fn request(&mut self, request: BlkReq) -> Result {
+    //     let mut resp = BlkResp::default();
+    //     self.queue
+    // }
 
     /// Read a block.
     pub fn read_block(&mut self, block_id: usize, buf: &mut [u8]) -> Result {

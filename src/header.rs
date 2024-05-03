@@ -26,10 +26,10 @@ pub struct VirtIOHeader {
     vendor_id: ReadOnly<u32>,
 
     /// Flags representing features the device supports
-    device_features: ReadOnly<u32>,
+    pub device_features: ReadOnly<u32>,
 
     /// Device (host) features word selection
-    device_features_sel: WriteOnly<u32>,
+    pub device_features_sel: WriteOnly<u32>,
 
     /// Reserved
     __r1: [ReadOnly<u32>; 2],
@@ -171,43 +171,37 @@ impl VirtIOHeader {
     /// Begin initializing the device.
     ///
     /// Ref: virtio 3.1.1 Device Initialization
-    // pub fn begin_init(&mut self, negotiate_features: impl FnOnce(u64) -> u64) {
-    //     self.status.write(DeviceStatus::ACKNOWLEDGE);
-    //     self.status.write(DeviceStatus::DRIVER);
+    pub fn begin_init(&mut self, negotiate_features: impl FnOnce(u64) -> u64) -> u64 {
+        self.status.write(DeviceStatus::ACKNOWLEDGE);
+        self.status.write(DeviceStatus::DRIVER);
 
-    //     let features = self.read_device_features();
-    //     self.write_driver_features(negotiate_features(features));
-    //     self.status.write(DeviceStatus::FEATURES_OK);
+        let features = self.read_device_features();
+        let negotiated_features = negotiate_features(features);
+        self.write_driver_features(negotiated_features);
+        self.status.write(DeviceStatus::FEATURES_OK);
 
-    //     self.guest_page_size.write(PAGE_SIZE as u32);
-    // }
-
-    pub fn begin_init<F: Flags<Bits = u64> + BitAnd<Output = F> + Debug>(
-        &mut self,
-        supported_features: F,
-    ) -> F {
-        // self.set_status(DeviceStatus::empty());
-        // self.set_status(DeviceStatus::ACKNOWLEDGE | DeviceStatus::DRIVER);
-        self.status
-            .write(DeviceStatus::ACKNOWLEDGE | DeviceStatus::DRIVER);
-        // self.status.write(DeviceStatus::DRIVER);
-
-        let device_features = F::from_bits_truncate(self.read_device_features());
-        debug!("Device features: {:?}", device_features);
-        let negotiated_features = device_features & supported_features;
-        self.write_driver_features(negotiated_features.bits());
-
-        // self.set_status(
-        //     DeviceStatus::ACKNOWLEDGE | DeviceStatus::DRIVER | DeviceStatus::FEATURES_OK,
-        // );
-        self.status
-            .write(DeviceStatus::ACKNOWLEDGE | DeviceStatus::DRIVER | DeviceStatus::FEATURES_OK);
-
-        // self.set_guest_page_size(PAGE_SIZE as u32);
         self.guest_page_size.write(PAGE_SIZE as u32);
-
         negotiated_features
     }
+
+    // pub fn begin_init<F: Flags<Bits = u64> + BitAnd<Output = F> + Debug>(
+    //     &mut self,
+    //     supported_features: F,
+    // ) -> F {
+    //     self.status.write(DeviceStatus::empty());
+    //     self.status
+    //         .write(DeviceStatus::ACKNOWLEDGE | DeviceStatus::DRIVER);
+
+    //     let device_features = F::from_bits_truncate(self.read_device_features());
+    //     debug!("Device features: {:?}", device_features);
+    //     let negotiated_features = device_features & supported_features;
+    //     self.write_driver_features(negotiated_features.bits());
+    //     self.status
+    //         .write(DeviceStatus::ACKNOWLEDGE | DeviceStatus::DRIVER | DeviceStatus::FEATURES_OK);
+    //     self.guest_page_size.write(PAGE_SIZE as u32);
+
+    //     negotiated_features
+    // }
 
     /// Finish initializing the device.
     pub fn finish_init(&mut self) {

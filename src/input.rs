@@ -29,7 +29,14 @@ impl<'a, H: Hal> VirtIOInput<'a, H> {
         //     (features & supported_features).bits()
         // });
 
-        let negotiated_features = header.begin_init(SUPPORTED_FEATURES);
+        // let negotiated_features = header.begin_init(SUPPORTED_FEATURES);
+        let negotiated_features = Feature::from_bits_truncate(header.begin_init(|features| {
+            let features = Feature::from_bits_truncate(features);
+            info!("device features: {:?}", features);
+            // negotiate these flags only
+            let supported_features = SUPPORTED_FEATURES;
+            (features & supported_features).bits()
+        }));
 
         let mut event_queue = VirtQueue::new(header, QUEUE_EVENT, QUEUE_SIZE as u16)?;
         let status_queue = VirtQueue::new(header, QUEUE_STATUS, QUEUE_SIZE as u16)?;

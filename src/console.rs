@@ -30,7 +30,14 @@ impl<H: Hal> VirtIOConsole<'_, H> {
         //     let supported_features = Features::empty();
         //     (features & supported_features).bits()
         // });
-        let negotiated_features = header.begin_init(SUPPORTED_FEATURES);
+        // let negotiated_features = header.begin_init(SUPPORTED_FEATURES);
+        let negotiated_features = Features::from_bits_truncate(header.begin_init(|features| {
+            let features = Features::from_bits_truncate(features);
+            info!("device features: {:?}", features);
+            // negotiate these flags only
+            let supported_features = SUPPORTED_FEATURES;
+            (features & supported_features).bits()
+        }));
 
         let config = unsafe { &mut *(header.config_space() as *mut Config) };
         info!("Config: {:?}", config);
