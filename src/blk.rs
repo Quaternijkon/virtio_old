@@ -13,7 +13,7 @@ const QUEUE_SIZE: u16 = 16;
 const SUPPORTED_FEATURES: BlkFeature = BlkFeature::RO //支持只读
     .union(BlkFeature::FLUSH) //支持缓存刷新命令
     .union(BlkFeature::RING_INDIRECT_DESC) //支持间接描述符
-    .union(BlkFeature::RING_EVENT_IDX) //支持事件索引
+    // .union(BlkFeature::RING_EVENT_IDX) //支持事件索引
     .union(BlkFeature::BLK_SIZE) //支持设置块大小
     .union(BlkFeature::CONFIG_WCE) //支持writeback和writethrough模式
     .union(BlkFeature::TOPOLOGY) //支持提供最佳I/O对齐信息
